@@ -27,7 +27,7 @@ class HFSLoadData(object):
 
         self.info_dict['load_date'] = '{:%Y-%m-%d}'.format(datetime.today())
         self.info_dict['db'] = database
-        self.info_dict['ReleaseNum'] = str(release_num).replace('\n','').strip()
+        self.info_dict['ReleaseNum'] = str(int(release_num))
         self.load_inline_dict = {}
 
         self.connection = dbconnect.DatabaseConnect(self.info_dict['db'])
@@ -340,11 +340,11 @@ class HFSLoadData(object):
             'file_path': '{path}/{revenue}'.format(**self.info_dict),
             'table_name': 'raw_revenue_codes'}
 
-        self.sql_file_path
 
         mysql_script_name = '''Load_Data_to_DB_ReleaseNum_{ReleaseNum}.sql'''.format(**self.info_dict)
         insert_info_script_name = '''Load_info_{ReleaseNum}.sql'''.format(**self.info_dict)
         delete_info_script_name = '''Delete_Release_Info_{ReleaseNum}.sql'''.format(**self.info_dict)
+
         mysql_script_name = os.path.join(self.sql_file_path, mysql_script_name)
         insert_info_script_name = os.path.join(self.sql_file_path, insert_info_script_name)
         delete_info_script_name = os.path.join(self.sql_file_path, delete_info_script_name)
@@ -385,6 +385,7 @@ class HFSLoadData(object):
            counts into hfs_load_count_info'''
         table_count = 12
         counter = 0
+        raw_insert_values = []
 
         for key in self.load_inline_dict.keys():
             table = self.load_inline_dict[key]['table_name']
@@ -392,26 +393,25 @@ class HFSLoadData(object):
             file = self.load_inline_dict[key]['file_path']
 
             if os.path.exists(file):
-                load_count = self.connection.inline_import(inline_str, None)
+                load_count = self.connection.query(inline_str,
+                                                   output_format='none',
+                                                   count_output=True)
                 counter += 1
                 print('{}: Load completed correctly n={}'.format(table, load_count))
             else:
                 print('{}: file is not present!!'.format(table))
                 load_count = 0
 
-            self.load_inline_dict[key]['sql_insert'] = """INSERT INTO
-              hfs_load_count_info(TableName, ReleaseNum, LoadDate, NRowsImport)
-              select '{table}' as TableName, {ReleaseNum} as ReleaseNum,
-              '{load_date}' as LoadDate, {row_count} as NRowsImport;
-              """.format(table=table, row_count=load_count, **self.info_dict)
+            raw_insert_values.append([table, self.info_dict['ReleaseNum'],
+                                      self.info_dict['load_date'], load_count])
+
 
         if table_count == counter:
             print('\nAll tables loaded into raw tables correctly\n')
         else:
             print('{}/{} tables loaded!!!'.format(counter, table_count))
-        for key in self.load_inline_dict.keys():
-            self.connection.query(self.load_inline_dict[key]['sql_insert'],
-                                  df_flag=False)
+
+        return raw_insert_values
 
     def delete_tbl_rows(self, table_key):
         '''table_key: (str) deletes rows with associated table_key.
@@ -419,13 +419,12 @@ class HFSLoadData(object):
             tables and hfs_load_count_info'''
         if table_key == 'All':
             for key in self.load_inline_dict.keys():
-                self.connection.query(self.load_inline_dict[key]['sql_delete'], df_flag=False)
+                self.connection.query(self.load_inline_dict[key]['sql_delete'], output_format='none')
                 print('Deleting rows from {}'.format(self.load_inline_dict[key]['table_name']))
 
             self.connection.query("""DELETE FROM {db}.hfs_load_count_info
                                      where ReleaseNum = {ReleaseNum}"""
-                                  .format(**self.info_dict), df_flag=False)
+                                  .format(**self.info_dict), output_format='none')
         else:
-            self.connection.query(self.load_inline_dict[table_key]['sql_delete'], df_flag=False)
-
+            self.connection.query(self.load_inline_dict[key]['sql_delete'], output_format='none')
             print('Deleted rows from {}'.format(self.load_inline_dict[table_key]['table_name']))

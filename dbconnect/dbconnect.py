@@ -1,102 +1,84 @@
-import configparser
-import MySQLdb
-from sqlalchemy import create_engine
+import datetime
 import pandas as pd
+import pymysql
 from CHECK.secret import secret
 
-class DatabaseConnect():
-    def __init__(self, database):
-        _sec = secret.Secret()
-        self.db_config = _sec.db_config()
-        self.db_config['database'] = database
-        self.engine = create_engine("mysql+pymysql://{user}:{password}@{host}:{port}/{database}".format(**self.db_config))
+class DatabaseConnect:
 
-    def connection_obj(self):
-        connection = self.engine.connect()
+    def __init__(self, db, default_cursor=pymysql.cursors.DictCursor):
+        self.db_config = secret.Secret().db_config()
+        self.db_config['database'] = db
+        self.db_config['cursorclass'] = default_cursor
+
+
+    def create_connection(self):
+        connection = pymysql.connect(**self.db_config)
         return connection
 
-    def query(self,sql_str, df_flag=True, parse_dates=None,
-              chunksize=None, columns=None):
-        '''
-        sql_str(str): query to be fetched from data base
-        returns a pandas dataframe that contains query results
-        '''
+
+    def query(self, sql, *params, output_format='raw', count_output=False):
+
+        if output_format not in ['raw', 'df', 'none']:
+            raise ValueError("output_format must be in ['raw', 'df', 'none']")
+        if not isinstance(count_output, bool):
+            raise ValueError('count_output must be bool')
+
+        connection = self.create_connection()
         try:
-            connection = self.connection_obj()
-            if df_flag == True:
-                df = self.to_dataframe(sql_str,connection,parse_dates,chunksize=None)
-                return df
-            else:
-                return connection.execute(sql_str)
-        except:
-            raise Exception
+            with connection.cursor() as cursor:
+                if len(params) == 0:
+                    count = cursor.execute(sql)
+                else:
+                    count = cursor.execute(sql, params)
+                result = cursor.fetchall()
+                connection.commit()
         finally:
             connection.close()
 
+        if output_format == 'df':
+            result = self.to_df(result)
 
-    def to_dataframe(self,sql_str, connection, parse_dates=None, chunksize=None):
-        df = pd.read_sql(sql_str, con=connection, parse_dates=parse_dates, chunksize=None)
-        return df
+        if count_output == True and output_format != 'none':
+            return count, result
+        elif count_output == False and output_format != 'none':
+            return result
+        elif count_output == True and output_format == 'none':
+            return count
+        else:
+            return None
 
-    def insert(self,df,tbl,chunksize=None):
-        '''
-        df(pd.DataFrame): df to be inserted
-        tbl(str): table in database to insert df into
-        '''
+    def insert(self, sql, params):
+
+        connection = self.create_connection()
         try:
-            connection = self.connection_obj()
-            df.to_sql(name=tbl,con=connection,if_exists='append',index=False,chunksize=None)
-            connection.close()
-        except:
-            raise Exception
-
-    def stored_procedure(self, proc_name, proc_params=None):
-        '''Used to call a stored procedure;
-        proc_params(list): list of parameters'''
-
-        connection = self.engine.raw_connection()
-        try:
-            cursor = connection.cursor()
-            if proc_params == None:
-                cursor.callproc(proc_name)
-            else:
-                cursor.callproc(proc_name, proc_params)
-            results = list(cursor.fetchall())
-            cursor.close()
-            connection.commit()
+            with connection.cursor() as cursor:
+                if isinstance(params[0], list) or  isinstance(params[0], tuple):
+                    count = cursor.executemany(sql, params)
+                else:
+                    cursor.execute(sql, params)
+                    count = 1
+                connection.commit()
         finally:
             connection.close()
 
+        return count
 
-    def replace(self,df,tbl,chunksize=None):
-        '''
-        df(pd.DataFrame): df to be inserted
-        tbl(str): table in database to insert df into
-        '''
-        try:
-            connection = self.connection_obj()
-            self.query("DELETE FROM {}".format(tbl), df_flag=False)
-            df.to_sql(name=tbl,con=connection,if_exists='append',index=False,chunksize=None)
-            connection.close()
-        except:
-            raise Exception
+    def to_df(self, result):
 
-    def inline_import(self, sql_str, file_path):
-        '''sql_str: (string) contains the inline file instructions
-           file_path: (string) path to file to verify counts'''
+        if not isinstance(result[0], dict):
+            raise ValueError('results must be in dict format')
 
-        try:
-            connection = MySQLdb.Connect(host=self.db_config['host'], user=self.db_config['user'],
-                                         passwd=self.db_config['password'], db=self.db_config['database'])
-            cursor = connection.cursor()
-            n_rows = cursor.execute(sql_str)
-            cursor.close()
-            connection.commit()
-            if file_path is not None:
-                file_rows = sum([1 for i in open(file_path)])
-                return n_rows, file_rows
-            return n_rows
-        except:
-            raise Exception
-        finally:
-            connection.close()
+        datetime_cols = []
+        for col in result[0]:
+            if isinstance(result[0][col], datetime.date):
+                datetime_cols.append(col)
+            elif isinstance(result[0][col], datetime.datetime):
+                datetime_cols.append(col)
+
+        result = pd.DataFrame(result)
+
+        for col in datetime_cols:
+            result.loc[:, col] = pd.to_datetime(result.loc[:, col])
+
+
+        return result

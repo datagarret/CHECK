@@ -1,12 +1,17 @@
+from datetime import datetime
 from CHECK.dbconnect import dbconnect
 
 
 class Staging(object):
 
-    def __init__(self, database):
+    def __init__(self, database, release_num):
+
+
         self.update_tables = ['nips', 'diagnosis', 'institutional',
                               'procedure', 'revenue_codes','main_claims']
         self.connection = dbconnect.DatabaseConnect(database)
+        self.release_num = release_num
+
 
     def pk_update_str(self, table):
         sql_str = '''UPDATE {} tbl
@@ -27,7 +32,7 @@ class Staging(object):
             if table != 'main_claims':
                 table = 'raw_' + table
                 update_pk_string = self.pk_update_str(table)
-                output = self.connection.query(update_pk_string, df_flag=False)
+                output = self.connection.query(update_pk_string, output_format='none')
         return 'All PK in tables updated'
 
     def adjustment_delete_str(self, table):
@@ -40,34 +45,21 @@ class Staging(object):
         return adj_str
 
     def pk_table_maker(self):
-        drop_table_str = '''drop table if exists temp_pk_tbl;'''
-        output = self.connection.query(drop_table_str, df_flag=False)
-        create_table_str = '''CREATE TABLE temp_pk_tbl (
-                              PK int(11) NOT NULL,
-                              DCN char(15) DEFAULT NULL,
-                              ServiceLineNbr char(2) DEFAULT NULL,
-                              RejectionStatusCd char(1) DEFAULT NULL,
-                              RecipientID char(9) DEFAULT NULL,
-                              AdjudicatedDt date DEFAULT NULL,
-                              PRIMARY KEY (PK),
-                              UNIQUE KEY hfs_ix (DCN, ServiceLineNbr,
-                              RejectionStatusCd, RecipientID, AdjudicatedDt))'''
 
-        output = self.connection.query(create_table_str, df_flag=False)
-
-        insert_str = '''INSERT INTO temp_pk_tbl select PK, DCN, ServiceLineNbr,
-        RejectionStatusCd, RecipientID, AdjudicatedDt FROM raw_main_claims
-        where RejectionStatusCd = 'N';'''
-        insert_output = self.connection.query(insert_str, df_flag=False)
+        insert_str = '''INSERT into temp_pk_tbl (PK, DCN, ServiceLineNbr,
+                        RejectionStatusCd, RecipientID, AdjudicatedDt)
+                        (SELECT raw.PK, raw.DCN, raw.ServiceLineNbr,
+                        raw.RejectionStatusCd, raw.RecipientID, raw.AdjudicatedDt
+                        from raw_main_claims raw
+                            LEFT JOIN temp_pk_tbl pk
+                        on raw.PK=pk.PK
+                       WHERE pk.PK is null and raw.RejectionStatusCd = 'N')'''
+        insert_output = self.connection.query(insert_str, output_format='none')
 
         adjust_str = self.adjustment_delete_str('temp_pk_tbl')
-        output = self.connection.query(adjust_str, df_flag=False)
+        output = self.connection.query(adjust_str, output_format='none')
 
-        return 'PK temp table created'
-
-    def stage_clear(self, table):
-        sql = '''truncate {};'''.format(table)
-        return sql
+        return 'PK temp has been updated created'
 
     def raw_to_stage_str(self, raw_table, stage_table):
         sql = '''INSERT ignore into  {}
@@ -90,29 +82,71 @@ class Staging(object):
     def raw_to_stage_pharm_insert(self):
         sql = '''INSERT ignore into stage_pharmacy select * FROM
         raw_pharmacy;'''
-        output = self.connection.query(sql, df_flag=False)
+        output = self.connection.query(sql, output_format='none')
 
         adjust_str = self.adjustment_delete_str('stage_pharmacy')
-        output = self.connection.query(adjust_str, df_flag=False)
-
+        output = self.connection.query(adjust_str, output_format='none')
         return 'Pharmacy Staged'
+
 
     def raw_to_stage_insert_all(self):
 
+        load_date = '{:%Y-%m-%d}'.format(datetime.today())
+
+        stage_insert_values = []
+
         for table in self.update_tables:
+
             raw_table = 'raw_' + table
             stage_table = 'stage_' + table
-            clean_sql = self.stage_clean(stage_table)
-            output = self.connection.query(clean_sql, df_flag=False)
             raw_to_stage_sql = self.raw_to_stage_str(raw_table, stage_table)
-            output = self.connection.query(raw_to_stage_sql, df_flag=False)
-            print('Table {} inserted into stage'.format(table))
+            stage_insert = self.connection.query(raw_to_stage_sql,
+                                                 output_format='none',
+                                                 count_output=True)
+            clean_sql = self.stage_clean(stage_table)
+            stage_removed = self.connection.query(clean_sql,
+                                                  output_format='none',
+                                                  count_output=True)
 
-        return 'Tables Inserted'
+            stage_insert_values.append([stage_table, self.release_num, load_date, stage_insert, 'Insert'])
+            stage_insert_values.append([stage_table, self.release_num, load_date, stage_removed, 'Delete'])
+
+            print('Table {} inserted {} rows deleted {} into stage'.format(table, stage_insert, stage_removed))
+
+        return stage_insert_values
+
+
+    def adjusted_price_update(self, table):
+        update_str = '''UPDATE {} set AdjustedPriceAmt = GREATEST(NetLiabilityAmt,
+                                                                  EncounterPriceAmt);'''.format(table)
+        output = self.connection.query(update_str, output_format='none')
+
+        update_str = '''update {} tbl inner join raw_adjustments mc on
+                    tbl.DCN = mc.DCN
+                    AND tbl.ServiceLineNbr = mc.ServiceLineNbr
+                    AND tbl.RejectionStatusCd = mc.RejectionStatusCd
+                    AND tbl.RecipientID = mc.RecipientID
+                    AND tbl.AdjudicatedDt = mc.AdjudicatedDt set
+                    AdjustedPriceAmt = CorrectedNetLiabilityAmt
+                                    where VoidInd = '';'''.format(table)
+
+        output = self.connection.query(update_str, output_format='none')
+
+
+
+        return 'AdjustedPriceAmt Completed for {}'.format(table)
+
 
 
     def raw_to_stage_wrapper(self):
+
         print(self.pk_update_all())
         print(self.pk_table_maker())
         print(self.raw_to_stage_pharm_insert())
-        print(self.raw_to_stage_insert_all())
+        stage_row_counts = self.raw_to_stage_insert_all()
+
+
+        for table in ['stage_pharmacy','stage_main_claims']:
+            self.adjusted_price_update(table)
+
+        return stage_row_counts
