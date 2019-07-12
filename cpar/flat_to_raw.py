@@ -402,8 +402,9 @@ class HFSLoadData(object):
                 print('{}: file is not present!!'.format(table))
                 load_count = 0
 
-            raw_insert_values.append([table, self.info_dict['ReleaseNum'],
-                                      self.info_dict['load_date'], load_count])
+            raw_insert_values.append({'table':table, 'release_num':self.info_dict['ReleaseNum'],
+                                      'load_date':self.info_dict['load_date'], 'nrows':load_count,
+                                      'type':'Insert'})
 
 
         if table_count == counter:

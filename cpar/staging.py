@@ -6,7 +6,6 @@ class Staging(object):
 
     def __init__(self, database, release_num):
 
-
         self.update_tables = ['nips', 'diagnosis', 'institutional',
                               'procedure', 'revenue_codes','main_claims']
         self.connection = dbconnect.DatabaseConnect(database)
@@ -100,18 +99,22 @@ class Staging(object):
             raw_table = 'raw_' + table
             stage_table = 'stage_' + table
             raw_to_stage_sql = self.raw_to_stage_str(raw_table, stage_table)
-            stage_insert = self.connection.query(raw_to_stage_sql,
+            nrows_stage_insert = self.connection.query(raw_to_stage_sql,
                                                  output_format='none',
                                                  count_output=True)
             clean_sql = self.stage_clean(stage_table)
-            stage_removed = self.connection.query(clean_sql,
+            nrows_stage_removed = self.connection.query(clean_sql,
                                                   output_format='none',
                                                   count_output=True)
 
-            stage_insert_values.append([stage_table, self.release_num, load_date, stage_insert, 'Insert'])
-            stage_insert_values.append([stage_table, self.release_num, load_date, stage_removed, 'Delete'])
+            stage_insert_values.append({'table':stage_table, 'release_num':self.release_num,
+                                        'load_date':load_date, 'nrows': nrows_stage_insert,
+                                        'type':'Insert'})
+            stage_insert_values.append({'table':stage_table, 'release_num':self.release_num,
+                                        'load_date':load_date, 'nrows': nrows_stage_removed,
+                                        'type':'Delete'})
 
-            print('Table {} inserted {} rows deleted {} into stage'.format(table, stage_insert, stage_removed))
+            print('Table {} inserted {} rows deleted {} into stage'.format(table, nrows_stage_insert, nrows_stage_removed))
 
         return stage_insert_values
 
@@ -131,8 +134,6 @@ class Staging(object):
                                     where VoidInd = '';'''.format(table)
 
         output = self.connection.query(update_str, output_format='none')
-
-
 
         return 'AdjustedPriceAmt Completed for {}'.format(table)
 

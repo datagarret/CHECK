@@ -44,7 +44,7 @@ class ExtractFiles(object):
         unzip_status = None
 
         rename_count = self.raw_file_rename()
-        if rename_count == 13:
+        if rename_count >= 11 and rename_count <= 13:
             unzip_status = 'Previously Unzipped'
 
         elif base_zip['Status'] == False and raw_zip['Status'] == False:
