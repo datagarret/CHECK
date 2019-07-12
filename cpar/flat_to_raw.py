@@ -391,6 +391,7 @@ class HFSLoadData(object):
             table = self.load_inline_dict[key]['table_name']
             inline_str = self.load_inline_dict[key]['inline_load']
             file = self.load_inline_dict[key]['file_path']
+            print(table)
 
             if os.path.exists(file):
                 load_count = self.connection.query(inline_str,

@@ -20,8 +20,7 @@ class Staging(object):
                             AND tbl.RecipientID = mc.RecipientID
                             AND tbl.AdjudicatedDt = mc.AdjudicatedDt
                     SET
-                        tbl.PK = mc.PK
-                    where tbl.PK is null;'''.format(table)
+                        tbl.PK = mc.PK where tbl.PK is null;'''.format(table)
 
         return sql_str
 
@@ -45,14 +44,17 @@ class Staging(object):
 
     def pk_table_maker(self):
 
+        truncate_str = '''truncate temp_pk_tbl;'''
+        truncate = self.connection.query(truncate_str, output_format='none')
+
+
         insert_str = '''INSERT into temp_pk_tbl (PK, DCN, ServiceLineNbr,
                         RejectionStatusCd, RecipientID, AdjudicatedDt)
-                        (SELECT raw.PK, raw.DCN, raw.ServiceLineNbr,
-                        raw.RejectionStatusCd, raw.RecipientID, raw.AdjudicatedDt
+                        (SELECT PK, DCN, ServiceLineNbr,
+                        RejectionStatusCd, RecipientID, AdjudicatedDt
                         from raw_main_claims raw
-                            LEFT JOIN temp_pk_tbl pk
-                        on raw.PK=pk.PK
-                       WHERE pk.PK is null and raw.RejectionStatusCd = 'N')'''
+                       WHERE raw.RejectionStatusCd = 'N')'''
+
         insert_output = self.connection.query(insert_str, output_format='none')
 
         adjust_str = self.adjustment_delete_str('temp_pk_tbl')
