@@ -42,34 +42,16 @@ class Staging(object):
                 AND tbl.AdjudicatedDt = mc.AdjudicatedDt where VoidInd = 'Y';'''.format(table)
         return adj_str
 
-    def pk_table_maker(self):
 
-        truncate_str = '''truncate temp_pk_tbl;'''
-        truncate = self.connection.query(truncate_str, output_format='none')
-
-
-        insert_str = '''INSERT into temp_pk_tbl (PK, DCN, ServiceLineNbr,
-                        RejectionStatusCd, RecipientID, AdjudicatedDt)
-                        (SELECT PK, DCN, ServiceLineNbr,
-                        RejectionStatusCd, RecipientID, AdjudicatedDt
-                        from raw_main_claims raw
-                       WHERE raw.RejectionStatusCd = 'N')'''
-
-        insert_output = self.connection.query(insert_str, output_format='none')
-
-        adjust_str = self.adjustment_delete_str('temp_pk_tbl')
-        output = self.connection.query(adjust_str, output_format='none')
-
-        return 'PK temp has been updated created'
-
-    def raw_to_stage_str(self, raw_table, stage_table):
+    def raw_to_stage_str(self, raw_table, stage_table, release_num):
         sql = '''INSERT ignore into  {}
-        select tbl.* from {} tbl inner join temp_pk_tbl mc
+        select tbl.* from {} tbl inner join raw_main_claims mc
         on tbl.DCN = mc.DCN
         AND tbl.ServiceLineNbr = mc.ServiceLineNbr
         AND tbl.RejectionStatusCd = mc.RejectionStatusCd
         AND tbl.RecipientID = mc.RecipientID
-        AND tbl.AdjudicatedDt = mc.AdjudicatedDt;'''.format(stage_table, raw_table)
+        AND tbl.AdjudicatedDt = mc.AdjudicatedDt
+        where mc.RejectionStatusCd = 'N' and mc.ReleaseNum = {}'''.format(stage_table, raw_table, release_num)
         return sql
 
     def stage_clean(self, stage_table):
@@ -100,11 +82,11 @@ class Staging(object):
 
             raw_table = 'raw_' + table
             stage_table = 'stage_' + table
-            raw_to_stage_sql = self.raw_to_stage_str(raw_table, stage_table)
+            raw_to_stage_sql = self.raw_to_stage_str(raw_table, stage_table, self.release_num)
             nrows_stage_insert = self.connection.query(raw_to_stage_sql,
                                                  output_format='none',
                                                  count_output=True)
-            clean_sql = self.stage_clean(stage_table)
+            clean_sql = self.adjustment_delete_str(stage_table)
             nrows_stage_removed = self.connection.query(clean_sql,
                                                   output_format='none',
                                                   count_output=True)
@@ -112,6 +94,7 @@ class Staging(object):
             stage_insert_values.append({'table':stage_table, 'release_num':self.release_num,
                                         'load_date':load_date, 'nrows': nrows_stage_insert,
                                         'type':'Insert'})
+
             stage_insert_values.append({'table':stage_table, 'release_num':self.release_num,
                                         'load_date':load_date, 'nrows': nrows_stage_removed,
                                         'type':'Delete'})
@@ -144,7 +127,6 @@ class Staging(object):
     def raw_to_stage_wrapper(self):
 
         print(self.pk_update_all())
-        print(self.pk_table_maker())
         print(self.raw_to_stage_pharm_insert())
         stage_row_counts = self.raw_to_stage_insert_all()
 
