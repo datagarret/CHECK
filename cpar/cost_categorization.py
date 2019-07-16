@@ -19,31 +19,35 @@ class CostCategorizer():
         print('truncate')
         self.connection.query(self.truncate_category_sql(), output_format='none')
 
+        categorization_info = []
+
         nips_cat = self.categorize_nips()
         if nips_cat is not None:
-            nips_cat = pd.merge(nips_cat, self.check_cat_df,
-                                on=['Category1','Category2','Category3'], how='left')
             insert_count = self.category_inserter(nips_cat)
             print('NIPS Categorize: {}'.format(insert_count))
-        op_cat = self.categorize_op()
+        else:
+            insert_count =  0
 
+        op_cat = self.categorize_op()
         if op_cat is not None:
-            op_cat = pd.merge(op_cat, self.check_cat_df,
-                              on=['Category1','Category2','Category3'], how='left')
             insert_count = self.category_inserter(op_cat)
             print('OP Categorize: {}'.format(insert_count))
+        else:
+            insert_count = 0
 
         ip_cat = self.categorize_ip()
         if ip_cat is not None:
-            ip_cat = pd.merge(ip_cat, self.check_cat_df,
-                              on=['Category1','Category2','Category3'], how='left')
             insert_count = self.category_inserter(ip_cat)
             print('IP Categorize: {}'.format(insert_count))
+        else:
+            insert_count = 0
 
+        print('Updating stage_main_claims...')
         update_count = self.connection.query(self.update_category_query(),
-                                  output_format='none', count_output=True)
+                                             output_format='none', count_output=True)
 
-        print(update_count)
+        return categorization_info
+
 
 
     def categorize_op(self):
@@ -52,6 +56,8 @@ class CostCategorizer():
             print('No OP claims to categorize')
             return None
         op_cat = self.op_categorizer(raw_op_data)
+        op_cat = pd.merge(op_cat, self.check_cat_df,
+                          on=['Category1','Category2','Category3'], how='left')
         return op_cat
 
 
@@ -61,6 +67,8 @@ class CostCategorizer():
             print('No NIPS claims to categorize')
             return None
         nips_cat = self.nips_categorizer(raw_nip_data)
+        nips_cat = pd.merge(nips_cat, self.check_cat_df,
+                            on=['Category1','Category2','Category3'], how='left')
         return nips_cat
 
 
@@ -71,21 +79,38 @@ class CostCategorizer():
             return None
         raw_ip_data['UBTypeofBillCd'] = raw_ip_data['UBTypeofBillCd'].astype(int)
         ip_cat = self.ip_categorizer(raw_ip_data)
+        ip_cat = pd.merge(ip_cat, self.check_cat_df,
+                          on=['Category1','Category2','Category3'], how='left')
         return ip_cat
 
 
     def category_inserter(self, category_df):
 
-        category_df = category_df[['PK', 'Category1', 'Category2', 'Category3','CHECK_Category', 'Visit']]
+        insert_sql_str = '''insert into tmp_cat_tbl
+        (PK,
+        Category1,
+        Category2,
+        Category3,
+        CHECK_Category,
+        Visit,
+        Service_Count,
+        Procedure_Count,
+        Visit_Inpatient_Days) values (%s, %s, %s, %s,
+        %s, %s, %s, %s, %s)'''
+
+        category_df = category_df[['PK', 'Category1', 'Category2', 'Category3',
+                                   'CHECK_Category', 'Visit', 'Service_Count',
+                                   'Procedure_Count', 'Visit_Inpatient_Days']]
+                                   
         category_df = category_df.to_numpy().tolist()
 
         insert_count = 0
         for i in range(0, len(category_df), 50000):
             if (i+50000) > len(category_df):
-                insert_count += self.connection.insert(self.insert_category_sql(),
+                insert_count += self.connection.insert(insert_sql_str,
                                                        category_df[i:])
             else:
-                insert_count += self.connection.insert(self.insert_category_sql(),
+                insert_count += self.connection.insert(insert_sql_str,
                                                        category_df[i:i+50000])
         return insert_count
 
@@ -135,19 +160,6 @@ class CostCategorizer():
         where Category1 is null and RecordIDCd = 'O';'''
 
         return sql_str
-
-    def update_category_query(self):
-        update_sql_str = '''update stage_main_claims mc inner join tmp_cat_tbl cat on cat.PK = mc.PK
-        set mc.Category1 = cat.Category1,
-        mc.Category2 = cat.Category2,
-        mc.Category3 = cat.Category3,
-        mc.Visit = cat.Visit,
-        mc.Service_Count = cat.Service_Count,
-        mc.Procedure_Count = cat.Procedure_Count,
-        mc.Visit_Inpatient_Days = cat.Visit_Inpatient_Days,
-        mc.CHECK_Category = cat.CHECK_Category;'''
-
-        return update_sql_str
 
     def nips_categorizer(self, nips_cat):
 
@@ -211,6 +223,8 @@ class CostCategorizer():
         nips_cat.loc[:, 'Encounter'] = 1
         nips_cat.loc[:, 'Procedure_Count'] = 0
         nips_cat.loc[:, 'Visit_Inpatient_Days'] = 0
+        nips_cat.loc[:, 'Service_Count'] = 0
+
 
         return nips_cat
 
@@ -308,8 +322,6 @@ class CostCategorizer():
         op_cat.loc[op_cat['Service_Count']!=1,
                    'Service_Count'] =  op_cat.loc[op_cat['Service_Count']!=1, 'Service_Count'] - 1
 
-
-
         op_cat.loc[:, 'Procedure_Count'] = 0
         op_cat.loc[:, 'Encounter'] = 1
         op_cat.loc[:, 'Visit_Inpatient_Days'] = 0
@@ -346,10 +358,18 @@ class CostCategorizer():
         group by PK'''.format(category_type)
         return sql_str
 
-    def insert_category_sql(self):
-        insert_sql_str = '''insert into tmp_cat_tbl
-        (PK, Category1, Category2, Category3, CHECK_Category, Visit) values (%s, %s, %s, %s, %s, %s)'''
-        return insert_sql_str
+    def update_category_query(self):
+        update_sql_str = '''update stage_main_claims mc inner join tmp_cat_tbl cat on cat.PK = mc.PK
+        set mc.Category1 = cat.Category1,
+        mc.Category2 = cat.Category2,
+        mc.Category3 = cat.Category3,
+        mc.Visit = cat.Visit,
+        mc.Service_Count = cat.Service_Count,
+        mc.Procedure_Count = cat.Procedure_Count,
+        mc.Visit_Inpatient_Days = cat.Visit_Inpatient_Days,
+        mc.CHECK_Category = cat.CHECK_Category;'''
+
+        return update_sql_str
 
     def truncate_category_sql(self):
         return 'truncate tmp_cat_tbl'
