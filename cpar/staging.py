@@ -26,7 +26,7 @@ class Staging(object):
 
     def pk_update_all(self):
 
-        for table in self.update_tables:
+        for table in self.update_tables + ['adjustments']:
             if table != 'main_claims':
                 table = 'raw_' + table
                 update_pk_string = self.pk_update_str(table)
@@ -34,12 +34,17 @@ class Staging(object):
         return 'All PK in tables updated'
 
     def adjustment_delete_str(self, table):
-        adj_str = '''DELETE tbl from {} tbl INNER JOIN
-                raw_adjustments mc on tbl.DCN = mc.DCN
-                AND tbl.ServiceLineNbr = mc.ServiceLineNbr
-                AND tbl.RejectionStatusCd = mc.RejectionStatusCd
-                AND tbl.RecipientID = mc.RecipientID
-                AND tbl.AdjudicatedDt = mc.AdjudicatedDt where VoidInd = 'Y';'''.format(table)
+        if table == 'stage_pharmacy':
+            adj_str = '''DELETE tbl from {} tbl INNER JOIN
+                    raw_adjustments mc on tbl.DCN = mc.DCN
+                    AND tbl.ServiceLineNbr = mc.ServiceLineNbr
+                    AND tbl.RejectionStatusCd = mc.RejectionStatusCd
+                    AND tbl.RecipientID = mc.RecipientID
+                    AND tbl.AdjudicatedDt = mc.AdjudicatedDt where VoidInd = 'Y';'''.format(table)
+        else:
+            adj_str = '''DELETE tbl from {} tbl INNER JOIN
+                    raw_adjustments mc on tbl.PK = mc.PK
+                     where VoidInd = 'Y';'''.format(table)
         return adj_str
 
 
@@ -109,14 +114,27 @@ class Staging(object):
                                                                   EncounterPriceAmt);'''.format(table)
         output = self.connection.query(update_str, output_format='none')
 
-        update_str = '''update {} tbl inner join raw_adjustments mc on
-                    tbl.DCN = mc.DCN
-                    AND tbl.ServiceLineNbr = mc.ServiceLineNbr
-                    AND tbl.RejectionStatusCd = mc.RejectionStatusCd
-                    AND tbl.RecipientID = mc.RecipientID
-                    AND tbl.AdjudicatedDt = mc.AdjudicatedDt set
-                    AdjustedPriceAmt = CorrectedNetLiabilityAmt
-                                    where VoidInd = '';'''.format(table)
+        #some immunization bills from the first release have encounters at
+        #the following costs. They are certaintly errors.
+        update_str = '''UPDATE stage_main_claims set AdjustedPriceAmt = 0
+        where (EncounterPriceAmt = 9999.99 or EncounterPriceAmt = 99999.99)
+        and CatgofServiceCd=30;'''.format(table)
+        output = self.connection.query(update_str, output_format='none')
+
+        if table == 'stage_pharmacy':
+            update_str = '''update {} tbl inner join raw_adjustments mc on
+                        tbl.DCN = mc.DCN
+                        AND tbl.ServiceLineNbr = mc.ServiceLineNbr
+                        AND tbl.RejectionStatusCd = mc.RejectionStatusCd
+                        AND tbl.RecipientID = mc.RecipientID
+                        AND tbl.AdjudicatedDt = mc.AdjudicatedDt set
+                        AdjustedPriceAmt = CorrectedNetLiabilityAmt
+                                        where VoidInd = '';'''.format(table)
+        else:
+            update_str = '''update {} tbl inner join raw_adjustments mc on
+                                tbl.PK = mc.PK
+                            set AdjustedPriceAmt = CorrectedNetLiabilityAmt
+                            where VoidInd = '';'''.format(table)
 
         output = self.connection.query(update_str, output_format='none')
 
