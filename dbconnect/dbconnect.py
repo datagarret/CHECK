@@ -65,6 +65,10 @@ class DatabaseConnect:
 
     def to_df(self, result):
 
+        if len(result) == 0:
+            print('No results')
+            return pd.DataFrame()
+
         if not isinstance(result[0], dict):
             raise ValueError('results must be in dict format')
 
