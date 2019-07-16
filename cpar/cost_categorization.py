@@ -21,7 +21,6 @@ class CostCategorizer():
 
         nips_cat = self.categorize_nips()
         if nips_cat is not None:
-
             nips_cat = pd.merge(nips_cat, self.check_cat_df,
                                 on=['Category1','Category2','Category3'], how='left')
             insert_count = self.category_inserter(nips_cat)
@@ -77,7 +76,7 @@ class CostCategorizer():
 
     def category_inserter(self, category_df):
 
-        category_df = category_df[['PK', 'Category1', 'Category2', 'Category3', 'Visit']]
+        category_df = category_df[['PK', 'Category1', 'Category2', 'Category3','CHECK_Category', 'Visit']]
         category_df = category_df.to_numpy().tolist()
 
         insert_count = 0
@@ -349,7 +348,7 @@ class CostCategorizer():
 
     def insert_category_sql(self):
         insert_sql_str = '''insert into tmp_cat_tbl
-        (PK, Category1, Category2, Category3, Visit) values (%s, %s, %s, %s, %s)'''
+        (PK, Category1, Category2, Category3, CHECK_Category, Visit) values (%s, %s, %s, %s, %s, %s)'''
         return insert_sql_str
 
     def truncate_category_sql(self):
