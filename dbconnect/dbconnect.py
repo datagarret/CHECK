@@ -52,8 +52,22 @@ class DatabaseConnect:
         connection = self.create_connection()
         try:
             with connection.cursor() as cursor:
-                if isinstance(params[0], list) or  isinstance(params[0], tuple):
-                    count = cursor.executemany(sql, params)
+
+                if isinstance(params, pd.DataFrame):
+                    #converts df to a list of lists and converts np.nan to None
+                    params = params.where(pd.notnull(params), None)
+                    params = params.to_numpy().tolist()
+
+                if isinstance(params[0], list) or isinstance(params[0], tuple):
+                    count = 0
+                    for i in range(0, len(params), 50000):
+                        if (i+50000) > len(params):
+                            count += cursor.executemany(sql,
+                                                        params[i:])
+                        else:
+                            count += cursor.executemany(sql,
+                                                        params[i:i+50000])
+
                 else:
                     cursor.execute(sql, params)
                     count = 1
