@@ -22,11 +22,8 @@ class DiagnosisCategorizer(object):
         return self.connection.query(pat_info_sql, output_format='df')
 
     def dx_code_query(self):
-        dx_code_query = '''SELECT mc.RecipientID, DiagCd,
-        min(ServiceFromDt) Min_Date, count(*) ICD_Count
+        dx_code_query = '''SELECT RecipientID, DiagCd, count(*) ICD_Count
         from stage_diagnosis dx
-        inner join
-        stage_main_claims mc on mc.PK = dx.PK
         group by DiagCd, RecipientID;'''
         return self.connection.query(dx_code_query, output_format='df')
 
@@ -123,7 +120,32 @@ class DiagnosisCategorizer(object):
         pt_dx_table.loc[:, 'Preg_Flag'] = pt_dx_table['Preg_Flag'].fillna(0).astype(int)
         return pt_dx_table
 
-    def dx_wrapper(self):
+    def dx_inserter(self, dx_df, dx_table_name):
+
+        self.connection.query('truncate {};'.format(dx_table_name))
+        table_columns = self.connection.query('describe {};'.format(dx_table_name))
+
+        fields = []
+        var_str = []
+        for col in table_columns:
+            fields.append(col['Field'])
+            var_str.append('%s')
+
+        #order the columns for correct insert loc
+        dx_df = dx_df[fields]
+
+        var_str = ",".join(var_str)
+        field_str = ",".join(fields)
+
+        insert_sql_str = '''insert into {}
+        ({}) values ({})'''.format(dx_table_name, field_str, var_str)
+
+        self.connection.insert(insert_sql_str, dx_df)
+
+        return 'Inserted {}'.format(dx_table_name)
+
+
+    def dx_wrapper(self, insert=False):
         '''Calculates for all of the diagnosis tables and if to_sql is True loads them into the
         database'''
         dx_dfs = {}
@@ -140,7 +162,13 @@ class DiagnosisCategorizer(object):
 
             dx_dfs[table] = pat_dx_table
 
-        return dx_dfs
+        if insert == False:
+            return dx_dfs
+        else:
+            for table in dx_dfs.keys():
+                print(self.dx_inserter(dx_dfs[table], table))
+            return 'Inserted'
+
 
 
 class RiskCategorizer(object):
@@ -277,7 +305,7 @@ class RiskCategorizer(object):
         return total_risk_df
 
 
-    def risk_wrapper(self):
+    def risk_wrapper(self, insert=False):
 
         pat_info_df = self.pat_info_query()
         ip_ed_df = self.ip_ed_query()
@@ -293,4 +321,7 @@ class RiskCategorizer(object):
             total_risk_df = pd.merge(total_risk_df, risk_df[['RecipientID',risk_col]],
                                      on='RecipientID', how='left')
 
-        return total_risk_df
+        if insert == False:
+            return total_risk_df
+        else:
+            return self.risk_inserter(total_risk_df)
