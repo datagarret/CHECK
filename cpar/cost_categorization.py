@@ -101,17 +101,8 @@ class CostCategorizer():
         category_df = category_df[['PK', 'Category1', 'Category2', 'Category3',
                                    'CHECK_Category', 'Visit', 'Service_Count',
                                    'Procedure_Count', 'Visit_Inpatient_Days']]
-                                   
-        category_df = category_df.to_numpy().tolist()
 
-        insert_count = 0
-        for i in range(0, len(category_df), 50000):
-            if (i+50000) > len(category_df):
-                insert_count += self.connection.insert(insert_sql_str,
-                                                       category_df[i:])
-            else:
-                insert_count += self.connection.insert(insert_sql_str,
-                                                       category_df[i:i+50000])
+        insert_count = self.connection.insert(insert_sql_str, category_df)
         return insert_count
 
     def nips_query(self):
