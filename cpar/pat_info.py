@@ -4,7 +4,7 @@ from CHECK.dbconnect import dbconnect
 
 class DiagnosisCategorizer(object):
 
-    def __init__(self, database='CHECK_CPAR2'):
+    def __init__(self, database, release_date):
 
         #qualifying ratio i,e, 3 inclusion codes for every 1 exclusion code to be diagnosed
         self.dx_ratio = {'SCD': .75}
@@ -123,7 +123,7 @@ class DiagnosisCategorizer(object):
         pt_dx_table.loc[:, 'Preg_Flag'] = pt_dx_table['Preg_Flag'].fillna(0).astype(int)
         return pt_dx_table
 
-    def load_diag_data(self):
+    def dx_wrapper(self):
         '''Calculates for all of the diagnosis tables and if to_sql is True loads them into the
         database'''
         dx_dfs = {}
@@ -141,3 +141,115 @@ class DiagnosisCategorizer(object):
             dx_dfs[table] = pat_dx_table
 
         return dx_dfs
+
+
+class RiskCategorizer(object):
+
+    def __init__(self, database, release_date):
+
+        self.release_date = release_date
+        self.connector = dbconnect.DatabaseConnect(database)
+
+        self.risk_date_columns = {'Release_Date':'Current_Risk',
+                                  'Engagement_Date':'Engagement_Risk',
+                                  'Enrollment_Date':'Enrollment_Risk',
+                                  'Randomization_Date':'Randomization_Risk',
+                                  'Program_Date':'Program_Risk'}
+
+    def pat_info_query(self):
+        sql_str = '''SELECT RecipientID, Initial_Enrollment_Date Enrollment_Date,
+        Engagement_Date, Randomization_Date,
+        Program_Date
+        FROM CHECK_CPAR2.pat_info_demo;'''
+        pat_info_df = self.connector.query(sql_str, output_format='df')
+
+        pat_info_df['Release_Date'] = self.release_date
+
+        for i in self.risk_date_columns.keys():
+            pat_info_df.loc[:, i] = pd.to_datetime(pat_info_df[i])
+
+        return pat_info_df
+
+    def ip_ed_query(self):
+        sql_str = '''SELECT
+            RecipientID,
+            ServiceFromDt,
+            ServiceThruDt,
+            IF(Category1='Outpatient', 'ED', 'IP') Category,
+            Encounter
+        FROM
+            stage_main_claims
+        WHERE
+            Category1 = 'INPATIENT'
+                OR (Category1 = 'OUTPATIENT'
+                AND CHECK_Category = 'ED')'''
+        ip_ed_df = self.connector.query(sql_str, output_format='df')
+
+        #IP takes precedent over ED on same day
+        ip_ed_df['Category'] = pd.Categorical(ip_ed_df['Category'],
+                                              categories=["IP", "ED"], ordered=True)
+        ip_ed_df = ip_ed_df.sort_values(['RecipientID','ServiceFromDt','Category'])
+        #converted back for speed
+        ip_ed_df['Category'] = ip_ed_df['Category'].astype('str')
+
+        ip_ed_df = ip_ed_df.groupby(['RecipientID','ServiceFromDt'],
+                                    as_index=False).first()
+
+        return ip_ed_df
+
+    def risk_tier_calc(self, pat_ed_ip_df, risk_col_name):
+
+        pat_ed_ip_df.loc[(pat_ed_ip_df['ED'] > 3) | (pat_ed_ip_df['IP'] > 1),
+                         risk_col_name] = 'High'
+
+        pat_ed_ip_df.loc[((pat_ed_ip_df['ED'] <= 3) & (pat_ed_ip_df['ED'] >= 1)) |
+                         (pat_ed_ip_df['IP'] == 1), risk_col_name] = 'Medium'
+
+        pat_ed_ip_df.loc[(pat_ed_ip_df['ED'] == 0) & (pat_ed_ip_df['IP'] == 0),
+                         risk_col_name] = 'Low'
+
+        return pat_ed_ip_df
+
+    def risk_calc_window(self, pat_df_in, ed_ip_df, date_col, risk_col_name):
+        '''Selects IP and ED bills that occured between the date_col and
+            12 months back pat_df_in: pandas dataframe w/ columns ED, IP,
+            ServiceFromDt, and date_col ed_ip_df: pandas dataframe'''
+
+        window_size = 12
+        re_ix = pat_df_in.loc[pat_df_in[date_col].notnull(), 'RecipientID']
+        pat_df = pat_df_in.copy()
+        pat_df = pd.merge(pat_df, ed_ip_df, on='RecipientID', how='left')
+        pat_df['Low_Window_Date'] = pat_df[date_col] - pd.DateOffset(months=window_size)
+        pat_df['ServiceFromDt'] = pd.to_datetime(pat_df['ServiceFromDt'])
+        pat_df[date_col] = pd.to_datetime(pat_df[date_col])
+
+        pat_df = pat_df.loc[pat_df['ServiceFromDt'].between(pat_df['Low_Window_Date'],
+                            pat_df[date_col])]
+
+        pat_df_group = pat_df.groupby(['RecipientID','Category'])['Encounter'].count()
+        pat_df_group = pat_df_group.unstack()
+
+        #puts in patients that had no ED or IP visits in the time window
+        pat_df_group = pat_df_group.reindex(re_ix, fill_value=0)
+        pat_df_group.fillna(0, inplace=True)
+        pat_df_group = self.risk_tier_calc(pat_df_group, risk_col_name)
+        return pat_df_group
+
+    def risk_wrapper(self):
+
+        pat_info = self.pat_info_query()
+        ip_ed_df = self.ip_ed_query()
+
+        total_risk_df = pat_info[['RecipientID']]
+
+        for date_col, risk_col in self.risk_date_columns.items():
+
+            risk_df = self.risk_calc_window(pat_info_df, ip_ed_df,
+                                            date_col, risk_col)
+
+            risk_df = risk_df.reset_index()
+
+            total_risk_df = pd.merge(total_risk_df, risk_df[['RecipientID',risk_col]],
+                                     on='RecipientID', how='left')
+
+        return total_risk_df
