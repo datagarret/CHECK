@@ -1,17 +1,21 @@
+import os
 import numpy as np
 import pandas as pd
 from CHECK.dbconnect import dbconnect
+import pkg_resources
 
 
 class CostCategorizer():
 
     def __init__(self, db):
         self.connection = dbconnect.DatabaseConnect(db)
-        self.nips_cat_df = pd.read_csv('/Users/check/.ipython/CHECK/cpar/categorization_files/nips_cat.csv')
-        self.op_hcpcs_df = pd.read_csv('/Users/check/.ipython/CHECK/cpar/categorization_files/op_hcpcs_codes_cat.csv')
-        self.op_rev_df = pd.read_csv('/Users/check/.ipython/CHECK/cpar/categorization_files/op_rev_codes_cat.csv',
+        cat_path = pkg_resources.resource_filename(__name__, 'categorization_files/')
+
+        self.nips_cat_df = pd.read_csv(os.path.join(cat_path, 'nips_cat.csv'))
+        self.op_hcpcs_df = pd.read_csv(os.path.join(cat_path, 'op_hcpcs_codes_cat.csv'))
+        self.op_rev_df = pd.read_csv(os.path.join(cat_path,'op_rev_codes_cat.csv'),
                                      dtype={'RevenueCd':'str'})
-        self.check_cat_df = pd.read_csv('/Users/check/.ipython/CHECK/cpar/categorization_files/check_category.csv')
+        self.check_cat_df = pd.read_csv(os.path.join(cat_path,'check_category.csv'))
 
 
     def categorize_wrapper(self):
