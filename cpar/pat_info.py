@@ -127,16 +127,16 @@ class DiagnosisCategorizer(object):
         '''Calculates for all of the diagnosis tables and if to_sql is True loads them into the
         database'''
         dx_dfs = {}
-        pat_info = self.pat_info_query()
+        pat_info_df = self.pat_info_query()
         dx_codes = self.dx_code_query()
 
         for table in self.diagnosis_tables:
             if table == 'pat_info_dx_primary':
-                pat_dx_table = self.primary_dx(dx_codes, pat_info)
+                pat_dx_table = self.primary_dx(dx_codes, pat_info_df)
             elif table == 'pat_info_dx_pregnancy':
-                pat_dx_table = self.preg_dx(dx_codes, pat_info)
+                pat_dx_table = self.preg_dx(dx_codes, pat_info_df)
             elif table == 'pat_info_dx_mental_health':
-                pat_dx_table = self.mh_dx(dx_codes, pat_info)
+                pat_dx_table = self.mh_dx(dx_codes, pat_info_df)
 
             dx_dfs[table] = pat_dx_table
 
@@ -216,7 +216,6 @@ class RiskCategorizer(object):
             ServiceFromDt, and date_col ed_ip_df: pandas dataframe'''
 
         window_size = 12
-        re_ix = pat_df_in.loc[pat_df_in[date_col].notnull(), 'RecipientID']
         pat_df = pat_df_in.copy()
         pat_df = pd.merge(pat_df, ed_ip_df, on='RecipientID', how='left')
         pat_df['Low_Window_Date'] = pat_df[date_col] - pd.DateOffset(months=window_size)
@@ -229,7 +228,9 @@ class RiskCategorizer(object):
         pat_df_group = pat_df.groupby(['RecipientID','Category'])['Encounter'].count()
         pat_df_group = pat_df_group.unstack()
 
-        #puts in patients that had no ED or IP visits in the time window
+        #puts in patients that had no ED or IP visits in the time window if
+        # they had a valid date
+        re_ix = pat_df_in.loc[pat_df_in[date_col].notnull(), 'RecipientID']
         pat_df_group = pat_df_group.reindex(re_ix, fill_value=0)
         pat_df_group.fillna(0, inplace=True)
         pat_df_group = self.risk_tier_calc(pat_df_group, risk_col_name)
@@ -254,6 +255,27 @@ class RiskCategorizer(object):
         self.connection.insert(insert_sql_str, risk_df)
 
         return 'Inserted'
+
+    def risk_history(self, pat_info_df, ed_ip_df, release_info_dict):
+
+        total_risk_df = pat_info_df[['RecipientID']].copy()
+
+        for release in load_release_info:
+
+            pat_info_df[release['ReleaseNum']] = release['ReleaseDate']
+            pat_info_df[release['ReleaseNum']] = pd.to_datetime(pat_info_df[release['ReleaseNum']])
+
+            risk_col_name = str(x['ReleaseNum'])+'_Risk'
+
+            risk_df = risker.risk_calc_window(pat_info_df, ip_ed_df, release['ReleaseNum'], risk_col_name)
+            risk_df = risk_df.reset_index()
+
+            total_risk_df = pd.merge(total_risk_df,
+                                     risk_df[['RecipientID', risk_col_name]],
+                                     on='RecipientID', how='left')
+
+        return total_risk_df
+
 
     def risk_wrapper(self):
 
