@@ -9,7 +9,7 @@ class DiagnosisCategorizer(object):
         #qualifying ratio i,e, 3 inclusion codes for every 1 exclusion code to be diagnosed
         self.dx_ratio = {'SCD': .75}
 
-        self.connector = dbconnect.DatabaseConnect(database)
+        self.connection = dbconnect.DatabaseConnect(database)
 
         self.diagnosis_tables = ['pat_info_dx_mental_health',
                                  'pat_info_dx_pregnancy',
@@ -19,7 +19,7 @@ class DiagnosisCategorizer(object):
     def pat_info_query(self):
         pat_info_sql = '''SELECT RecipientID, Program_Age, Gender,
                           Program_Date from pat_info_demo'''
-        return self.connector.query(pat_info_sql, output_format='df')
+        return self.connection.query(pat_info_sql, output_format='df')
 
     def dx_code_query(self):
         dx_code_query = '''SELECT mc.RecipientID, DiagCd,
@@ -28,7 +28,7 @@ class DiagnosisCategorizer(object):
         inner join
         stage_main_claims mc on mc.PK = dx.PK
         group by DiagCd, RecipientID;'''
-        return self.connector.query(dx_code_query, output_format='df')
+        return self.connection.query(dx_code_query, output_format='df')
 
     def diagnosis_category(self, df):
         '''Categorizes primary diagnosis into a single diagnosis column'''
@@ -96,7 +96,7 @@ class DiagnosisCategorizer(object):
 
     def primary_dx(self, pt_dx_codes, pt_info):
         '''Prematurity must be less age 3 at Enrollment to be considered Premature'''
-        inc_exc_table = self.connector.query( "SELECT * FROM dx_code_inc_exc_primary_diagnosis;", output_format='df')
+        inc_exc_table = self.connection.query( "SELECT * FROM dx_code_inc_exc_primary_diagnosis;", output_format='df')
         pt_dx_table = self.dx_table_iterator(pt_info, pt_dx_codes, inc_exc_table)
         pt_dx_table.loc[pt_dx_table['Program_Age'] > 3, 'Prematurity'] = 0
         pt_dx_table.loc[:,'ICD_List'] = '1'
@@ -105,7 +105,7 @@ class DiagnosisCategorizer(object):
         return pt_dx_table
 
     def mh_dx(self, pt_dx_codes, pt_info):
-        inc_exc_table = self.connector.query( "SELECT * FROM dx_code_inc_exc_mental_health;", output_format='df')
+        inc_exc_table = self.connection.query( "SELECT * FROM dx_code_inc_exc_mental_health;", output_format='df')
         pt_dx_table = self.dx_table_iterator(pt_info, pt_dx_codes, inc_exc_table)
         return pt_dx_table
 
@@ -113,7 +113,7 @@ class DiagnosisCategorizer(object):
         '''Determines if pregnancy icd code was ever given to patient
         Should only occur for Females over age 10 at time of enrollment'''
 
-        inc_exc_table = self.connector.query( "SELECT * FROM dx_code_inc_exc_pregnancy;", output_format='df')
+        inc_exc_table = self.connection.query( "SELECT * FROM dx_code_inc_exc_pregnancy;", output_format='df')
         pt_dx_table = self.dx_table_iterator(pt_info, pt_dx_codes, inc_exc_table)
 
         pt_dx_table.loc[(pt_dx_table[['Antenatal_care','Delivery','Abortive']].sum(axis=1) > 0) &
@@ -148,7 +148,7 @@ class RiskCategorizer(object):
     def __init__(self, database, release_date):
 
         self.release_date = release_date
-        self.connector = dbconnect.DatabaseConnect(database)
+        self.connection = dbconnect.DatabaseConnect(database)
 
         self.risk_date_columns = {'Release_Date':'Current_Risk',
                                   'Engagement_Date':'Engagement_Risk',
@@ -161,7 +161,7 @@ class RiskCategorizer(object):
         Engagement_Date, Randomization_Date,
         Program_Date
         FROM CHECK_CPAR2.pat_info_demo;'''
-        pat_info_df = self.connector.query(sql_str, output_format='df')
+        pat_info_df = self.connection.query(sql_str, output_format='df')
 
         pat_info_df['Release_Date'] = self.release_date
 
@@ -183,7 +183,7 @@ class RiskCategorizer(object):
             Category1 = 'INPATIENT'
                 OR (Category1 = 'OUTPATIENT'
                 AND CHECK_Category = 'ED')'''
-        ip_ed_df = self.connector.query(sql_str, output_format='df')
+        ip_ed_df = self.connection.query(sql_str, output_format='df')
 
         #IP takes precedent over ED on same day
         ip_ed_df['Category'] = pd.Categorical(ip_ed_df['Category'],
@@ -235,18 +235,37 @@ class RiskCategorizer(object):
         pat_df_group = self.risk_tier_calc(pat_df_group, risk_col_name)
         return pat_df_group
 
+    def risk_inserter(self, risk_df):
+
+        self.connection.query('truncate pat_info_risk;')
+
+        insert_sql_str = '''insert into pat_info_risk
+        (RecipientID,
+        Current_Risk,
+        Engagement_Risk,
+        Enrollment_Risk,
+        Randomization_Risk,
+        Program_Risk) values (%s, %s, %s, %s, %s, %s)'''
+
+        risk_df = risk_df[['RecipientID', 'Current_Risk',
+                           'Engagement_Risk', 'Enrollment_Risk',
+                           'Randomization_Risk', 'Program_Risk']]
+
+        self.connection.insert(insert_sql_str, risk_df)
+
+        return 'Inserted'
+
     def risk_wrapper(self):
 
-        pat_info = self.pat_info_query()
+        pat_info_df = self.pat_info_query()
         ip_ed_df = self.ip_ed_query()
 
-        total_risk_df = pat_info[['RecipientID']]
+        total_risk_df = pat_info_df[['RecipientID']]
 
         for date_col, risk_col in self.risk_date_columns.items():
 
             risk_df = self.risk_calc_window(pat_info_df, ip_ed_df,
                                             date_col, risk_col)
-
             risk_df = risk_df.reset_index()
 
             total_risk_df = pd.merge(total_risk_df, risk_df[['RecipientID',risk_col]],
