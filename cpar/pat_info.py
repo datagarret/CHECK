@@ -1,15 +1,17 @@
 import pandas as pd
 from CHECK.dbconnect import dbconnect
+from CHECK.dbconnect import import_helpers
 
 
 class DiagnosisCategorizer(object):
 
-    def __init__(self, database, release_date):
+    def __init__(self, database, release_date, release_num):
 
         #qualifying ratio i,e, 3 inclusion codes for every 1 exclusion code to be diagnosed
         self.dx_ratio = {'SCD': .75}
 
         self.connection = dbconnect.DatabaseConnect(database)
+        self.release_num = release_num
 
         self.diagnosis_tables = ['pat_info_dx_mental_health',
                                  'pat_info_dx_pregnancy',
@@ -61,6 +63,8 @@ class DiagnosisCategorizer(object):
                                       columns='Incl_Excl', values='ICD_Count',
                                       aggfunc='sum', fill_value=0)
 
+        if 'I' not in inc_exc_rids.columns:
+            inc_exc_rids['I'] = 0
         if 'E' not in inc_exc_rids.columns:
             inc_exc_rids['E'] = 0
         inc_exc_rids['Inc_Exc_Ratio'] = inc_exc_rids['I'] / (inc_exc_rids['E'] + inc_exc_rids['I'])
@@ -94,16 +98,19 @@ class DiagnosisCategorizer(object):
     def primary_dx(self, pt_dx_codes, pt_info):
         '''Prematurity must be less age 3 at Enrollment to be considered Premature'''
         inc_exc_table = self.connection.query( "SELECT * FROM dx_code_inc_exc_primary_diagnosis;", output_format='df')
+        unique_rids = pt_dx_codes['RecipientID'].unique()
         pt_dx_table = self.dx_table_iterator(pt_info, pt_dx_codes, inc_exc_table)
         pt_dx_table.loc[pt_dx_table['Program_Age'] > 3, 'Prematurity'] = 0
-        pt_dx_table.loc[:,'ICD_List'] = '1'
-        pt_dx_table.loc[~(pt_dx_table['RecipientID'].isin(pt_dx_codes['RecipientID'])),'ICD_List'] = '0'
+        pt_dx_table.loc[:, 'ICD_List'] = '0'
+        pt_dx_table.loc[pt_dx_table['RecipientID'].isin(unique_rids), 'ICD_List'] = '1'
         pt_dx_table['Diagnosis_Category'] = pt_dx_table.apply(self.diagnosis_category, axis=1)
+        pt_dx_table['ReleaseNum'] = self.release_num
         return pt_dx_table
 
     def mh_dx(self, pt_dx_codes, pt_info):
         inc_exc_table = self.connection.query( "SELECT * FROM dx_code_inc_exc_mental_health;", output_format='df')
         pt_dx_table = self.dx_table_iterator(pt_info, pt_dx_codes, inc_exc_table)
+        pt_dx_table['ReleaseNum'] = self.release_num
         return pt_dx_table
 
     def preg_dx(self, pt_dx_codes, pt_info):
@@ -118,29 +125,23 @@ class DiagnosisCategorizer(object):
         pt_dx_table.loc[pt_dx_table[['Antenatal_care','Delivery','Abortive']].sum(axis=1) == 0, 'Preg_Flag'] = 0
 
         pt_dx_table.loc[:, 'Preg_Flag'] = pt_dx_table['Preg_Flag'].fillna(0).astype(int)
+        pt_dx_table['ReleaseNum'] = self.release_num
         return pt_dx_table
 
     def dx_inserter(self, dx_df, dx_table_name):
 
         self.connection.query('truncate {};'.format(dx_table_name))
-        table_columns = self.connection.query('describe {};'.format(dx_table_name))
 
-        fields = []
-        var_str = []
-        for col in table_columns:
-            fields.append(col['Field'])
-            var_str.append('%s')
+        dx_table_cols = import_helpers.get_tbl_columns_query(self.connection,
+                                                             dx_table_name)
 
-        #order the columns for correct insert loc
-        dx_df = dx_df[fields]
+        shared_cols = import_helpers.get_shared_columns(dx_table_cols,
+                                                        dx_df.columns)
 
-        var_str = ",".join(var_str)
-        field_str = ",".join(fields)
+        insert_sql_str = import_helpers.insert_sql_generator(shared_cols,
+                                                             import_tbl=dx_table_name)
 
-        insert_sql_str = '''insert into {}
-        ({}) values ({})'''.format(dx_table_name, field_str, var_str)
-
-        self.connection.insert(insert_sql_str, dx_df)
+        self.connection.insert(insert_sql_str, dx_df[shared_cols])
 
         return 'Inserted {}'.format(dx_table_name)
 

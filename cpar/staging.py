@@ -1,6 +1,6 @@
 from datetime import datetime
 from CHECK.dbconnect import dbconnect
-
+from CHECK.dbconnect import import_helpers as ihelpers
 
 class Staging(object):
 
@@ -49,15 +49,30 @@ class Staging(object):
 
 
     def raw_to_stage_str(self, raw_table, stage_table, release_num):
-        sql = '''INSERT ignore into  {}
-        select tbl.* from {} tbl inner join raw_main_claims mc
-        on tbl.DCN = mc.DCN
-        AND tbl.ServiceLineNbr = mc.ServiceLineNbr
-        AND tbl.RejectionStatusCd = mc.RejectionStatusCd
-        AND tbl.RecipientID = mc.RecipientID
-        AND tbl.AdjudicatedDt = mc.AdjudicatedDt
-        where mc.RejectionStatusCd = 'N' and mc.ReleaseNum = {}'''.format(stage_table, raw_table, release_num)
-        return sql
+
+        raw_table_cols = ihelpers.get_tbl_columns_query(self.connection,
+                                                        raw_table)
+        stage_table_cols = ihelpers.get_tbl_columns_query(self.connection,
+                                                         stage_table)
+        shared_cols = ihelpers.get_shared_columns(raw_table_cols,
+                                                  stage_table_cols)
+
+        insert_sql_str = ihelpers.insert_sql_generator(shared_cols,
+                                                       import_tbl=stage_table,
+                                                       export_tbl=raw_table,
+                                                       insert_ignore=True)
+
+        join_sql = ''' inner join raw_main_claims mc
+        on et.DCN = mc.DCN
+        AND et.ServiceLineNbr = mc.ServiceLineNbr
+        AND et.RejectionStatusCd = mc.RejectionStatusCd
+        AND et.RecipientID = mc.RecipientID
+        AND et.AdjudicatedDt = mc.AdjudicatedDt
+        where mc.RejectionStatusCd = 'N' and mc.ReleaseNum = {}'''.format(release_num)
+
+        total_sql = insert_sql_str + join_sql
+
+        return total_sql
 
     def stage_clean(self, stage_table):
         sql = '''DELETE stage
