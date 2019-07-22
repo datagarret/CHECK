@@ -26,7 +26,7 @@ class DiagnosisCategorizer(object):
     def dx_code_query(self):
         dx_code_query = '''SELECT RecipientID, DiagCd, count(*) ICD_Count
         from stage_diagnosis dx
-        group by DiagCd, RecipientID;'''
+        group by DiagCd, ICDVersion, RecipientID;'''
         return self.connection.query(dx_code_query, output_format='df')
 
     def diagnosis_category(self, df):
@@ -174,9 +174,10 @@ class DiagnosisCategorizer(object):
 
 class RiskCategorizer(object):
 
-    def __init__(self, database, release_date):
+    def __init__(self, database, release_date, release_num):
 
         self.release_date = release_date
+        self.release_num = release_num
         self.connection = dbconnect.DatabaseConnect(database)
 
         self.risk_date_columns = {'Release_Date':'Current_Risk',
@@ -267,17 +268,19 @@ class RiskCategorizer(object):
 
     def risk_inserter(self, risk_df):
 
-        self.connection.query('truncate pat_info_risk;')
+        self.connection.query('delete from pat_info_risk where ReleaseNum = {};'.format(self.release_num))
 
         insert_sql_str = '''insert into pat_info_risk
         (RecipientID,
+        ReleaseNum,
         Current_Risk,
         Engagement_Risk,
         Enrollment_Risk,
         Randomization_Risk,
-        Program_Risk) values (%s, %s, %s, %s, %s, %s)'''
+        Program_Risk
+        ) values (%s, %s, %s, %s, %s, %s, %s)'''
 
-        risk_df = risk_df[['RecipientID', 'Current_Risk',
+        risk_df = risk_df[['RecipientID', 'ReleaseNum', 'Current_Risk',
                            'Engagement_Risk', 'Enrollment_Risk',
                            'Randomization_Risk', 'Program_Risk']]
 
@@ -322,6 +325,7 @@ class RiskCategorizer(object):
             total_risk_df = pd.merge(total_risk_df, risk_df[['RecipientID',risk_col]],
                                      on='RecipientID', how='left')
 
+        total_risk_df['ReleaseNum'] = self.release_num
         if insert == False:
             return total_risk_df
         else:

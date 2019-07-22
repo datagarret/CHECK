@@ -155,6 +155,20 @@ class Staging(object):
 
         return 'AdjustedPriceAmt Completed for {}'.format(table)
 
+    def stage_diagnosis_update(self):
+        '''adds ccs diagnosis categories into stage_diagnosis.'''
+
+        sql_str = '''UPDATE stage_diagnosis sdx
+                INNER JOIN
+            zref_hcup_ccs_dx ccs ON sdx.DiagCd = ccs.DiagCd
+                AND sdx.ICDVersion = ccs.ICDVersion
+        SET
+            sdx.CCSCategory = ccs.CCSCategory,
+            sdx.ChronicIndicator = ccs.ChronicIndicator
+        WHERE
+            sdx.CCSCategory IS NULL;'''
+
+        return sql_str
 
 
     def raw_to_stage_wrapper(self):
@@ -166,5 +180,7 @@ class Staging(object):
 
         for table in ['stage_pharmacy','stage_main_claims']:
             self.adjusted_price_update(table)
+
+        self.connection.query(self.stage_diagnosis_update(), output_format='none')
 
         return stage_row_counts
