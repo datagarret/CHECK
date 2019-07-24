@@ -58,7 +58,7 @@ class HFSLoadData(object):
            when the file_loader method is called'''
 
         self.load_inline_dict['adjustment_table'] = {'inline_load':
-        """LOAD DATA INFILE '{path}/{adjustment}'
+        """LOAD DATA LOCAL INFILE '{path}/{adjustment}'
           IGNORE INTO TABLE {db}.raw_adjustments
           (@row)
           SET
@@ -75,7 +75,7 @@ class HFSLoadData(object):
             'table_name': 'raw_adjustments'}
 
         self.load_inline_dict['main_claims_table'] = {'inline_load':
-        """LOAD DATA INFILE '{path}/{main_claims}'
+        """LOAD DATA LOCAL INFILE '{path}/{main_claims}'
           IGNORE INTO TABLE {db}.raw_main_claims
           (@row)
           SET
@@ -106,7 +106,7 @@ class HFSLoadData(object):
             'table_name': 'raw_main_claims'}
 
         self.load_inline_dict['immunization_table'] = {'inline_load':
-        """LOAD DATA INFILE '{path}/{immunization}'
+        """LOAD DATA LOCAL INFILE '{path}/{immunization}'
           IGNORE INTO TABLE {db}.raw_cornerstone_immunization
           (@row)
           SET
@@ -119,7 +119,7 @@ class HFSLoadData(object):
             'table_name': 'raw_cornerstone_immunization'}
 
         self.load_inline_dict['lead_table'] = {'inline_load':
-        """LOAD DATA INFILE '{path}/{lead}'
+        """LOAD DATA LOCAL INFILE '{path}/{lead}'
           IGNORE INTO TABLE {db}.raw_lead
           (@row)
           SET
@@ -136,7 +136,7 @@ class HFSLoadData(object):
             'table_name': 'raw_lead'}
 
         self.load_inline_dict['pharmacy_table'] = {'inline_load':
-        """LOAD DATA INFILE '{path}/{pharmacy}'
+        """LOAD DATA LOCAL INFILE '{path}/{pharmacy}'
           IGNORE INTO TABLE {db}.raw_pharmacy
           (@row)
           SET
@@ -180,7 +180,7 @@ class HFSLoadData(object):
             'table_name': 'raw_pharmacy'}
 
         self.load_inline_dict['recipient_flags_table'] = {'inline_load':
-        """LOAD DATA INFILE '{path}/{recipient_flags}'
+        """LOAD DATA LOCAL INFILE '{path}/{recipient_flags}'
           IGNORE INTO TABLE {db}.raw_recipient_flags
           (@row)
           SET
@@ -191,7 +191,7 @@ class HFSLoadData(object):
             'table_name': 'raw_recipient_flags'}
 
         self.load_inline_dict['diagnosis_table'] = {'inline_load':
-        """LOAD DATA INFILE '{path}/{diagnosis}'
+        """LOAD DATA LOCAL INFILE '{path}/{diagnosis}'
           IGNORE INTO TABLE {db}.raw_diagnosis
           (@row)
           SET
@@ -211,7 +211,7 @@ class HFSLoadData(object):
             'table_name': 'raw_diagnosis'}
 
         self.load_inline_dict['institutional_table'] = {'inline_load':
-        """LOAD DATA INFILE '{path}/{institutional}'
+        """LOAD DATA LOCAL INFILE '{path}/{institutional}'
           IGNORE INTO TABLE {db}.raw_institutional
           (@row)
           SET
@@ -243,7 +243,7 @@ class HFSLoadData(object):
             'table_name': 'raw_institutional'}
 
         self.load_inline_dict['nips_table'] = {'inline_load':
-        """LOAD DATA INFILE '{path}/{nips}'
+        """LOAD DATA LOCAL INFILE '{path}/{nips}'
           IGNORE INTO TABLE {db}.raw_nips
           (@row)
           SET
@@ -265,7 +265,7 @@ class HFSLoadData(object):
             'table_name': 'raw_nips'}
 
         self.load_inline_dict['compound_drug_table'] = {'inline_load':
-        """LOAD DATA INFILE '{path}/{compound_drug}'
+        """LOAD DATA LOCAL INFILE '{path}/{compound_drug}'
           IGNORE INTO TABLE {db}.raw_compound_drugs_detail
           (@row)
           SET
@@ -283,7 +283,7 @@ class HFSLoadData(object):
             'table_name': 'raw_compound_drugs_detail'}
 
         self.load_inline_dict['procedure_table'] = {'inline_load':
-        """LOAD DATA INFILE '{path}/{procedure}'
+        """LOAD DATA LOCAL INFILE '{path}/{procedure}'
           IGNORE INTO TABLE {db}.raw_procedure
           (@row)
           SET
@@ -308,7 +308,7 @@ class HFSLoadData(object):
             'table_name': 'raw_procedure'}
 
         self.load_inline_dict['revenue_table'] = {'inline_load':
-        """LOAD DATA INFILE '{path}/{revenue}'
+        """LOAD DATA LOCAL INFILE '{path}/{revenue}'
            IGNORE INTO TABLE {db}.raw_revenue_codes
            (@row)
            SET

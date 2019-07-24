@@ -9,6 +9,7 @@ class DatabaseConnect:
         self.db_config = secret.Secret().db_config()
         self.db_config['database'] = db
         self.db_config['cursorclass'] = default_cursor
+        self.db_config['local_infile'] = True
 
 
     def create_connection(self):
