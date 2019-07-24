@@ -130,7 +130,7 @@ class DiagnosisCategorizer(object):
 
     def dx_inserter(self, dx_df, dx_table_name):
 
-        self.connection.query('truncate {};'.format(dx_table_name))
+        self.connection.query('delete from {} where ReleaseNum = {};'.format(dx_table_name, self.release_num))
 
         dx_table_cols = import_helpers.get_tbl_columns_query(self.connection,
                                                              dx_table_name)
@@ -330,3 +330,69 @@ class RiskCategorizer(object):
             return total_risk_df
         else:
             return self.risk_inserter(total_risk_df)
+
+
+class PatInfoComplete(object):
+
+    def __init__(self, database, release_num):
+
+        self.connection = dbconnect.DatabaseConnect(database)
+        self.release_num = release_num
+
+    def demo_to_complete(self):
+
+        export_cols = import_helpers.get_tbl_columns_query(self.connection,
+                                                           'pat_info_demo')
+        import_cols = import_helpers.get_tbl_columns_query(self.connection,
+                                                           'pat_info_complete')
+
+        shared_cols = import_helpers.get_shared_columns(export_cols, import_cols)
+
+        insert_sql_str = import_helpers.insert_sql_generator(shared_cols,
+                                                             import_tbl='pat_info_complete',
+                                                             export_tbl='pat_info_demo')
+
+        self.connection.query(insert_sql_str)
+        self.connection.query('''update pat_info_complete
+                                 set ReleaseNum = {}'''.format(self.release_num))
+
+    def dx_update(self):
+        #primary dx_update
+        sql_str = '''UPDATE pat_info_complete pic inner join pat_info_dx_primary dx
+        on pic.RecipientID = dx.RecipientID and pic.ReleaseNum = dx.ReleaseNum
+        set pic.Asthma = dx.Asthma,
+        pic.Diabetes = dx.Diabetes,
+        pic.Brain_Injury = dx.Brain_Injury,
+        pic.Epilepsy = dx.Epilepsy,
+        pic.Prematurity = dx.Prematurity,
+        pic.SCD = dx.SCD,
+        pic.Diagnosis_Category = dx.Diagnosis_Category'''
+        self.connection.query(sql_str)
+
+        #pregnancy flag_update
+        sql_str = '''UPDATE pat_info_complete pic inner join pat_info_dx_pregnancy dx
+        on pic.RecipientID = dx.RecipientID and pic.ReleaseNum = dx.ReleaseNum
+        set pic.Preg_Flag = dx.Preg_Flag'''
+        self.connection.query(sql_str)
+
+    def risk_update(self):
+        sql_str = '''UPDATE pat_info_complete pic inner join pat_info_risk rsk
+        on pic.RecipientID = rsk.RecipientID and pic.ReleaseNum = rsk.ReleaseNum
+        set pic.Enrollment_Risk = rsk.Enrollment_Risk,
+        pic.Engagement_Risk = rsk.Engagement_Risk,
+        pic.Current_Risk = rsk.Current_Risk,
+        pic.Program_Risk = rsk.Program_Risk,
+        pic.Randomization_Risk = rsk.Randomization_Risk'''
+        self.connection.query(sql_str)
+
+    def pic_maker_wrapper(self):
+
+        self.connection.query('''REPLACE into pat_info_complete_history
+                                 select * from pat_info_complete;''')
+        #replace
+        self.connection.query('truncate pat_info_complete;')
+
+        self.demo_to_complete()
+        self.dx_update()
+        self.risk_update()
+        return 'pat_info_complete is done'
