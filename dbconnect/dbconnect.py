@@ -88,13 +88,16 @@ class DatabaseConnect:
             raise ValueError('results must be in dict format')
 
         datetime_cols = []
+        col_order = []
         for col in result[0]:
             if isinstance(result[0][col], datetime.date):
                 datetime_cols.append(col)
             elif isinstance(result[0][col], datetime.datetime):
                 datetime_cols.append(col)
+            col_order.append(col)
 
         result = pd.DataFrame(result)
+        result = result[col_order]
 
         for col in datetime_cols:
             result.loc[:, col] = pd.to_datetime(result.loc[:, col])
